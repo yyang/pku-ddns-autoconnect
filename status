@@ -1,0 +1,9 @@
+[ipgw]
+network = True
+cernet_free = False
+global = False
+last_connected = Jan 10.
+
+[ddns]
+system_ip = 10.10.10.10
+ddns_updated = Jan 10.

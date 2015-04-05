@@ -8,7 +8,7 @@ available.
 
 ## Installation
 
-The configurations are stored in `config.conf`, and a template is available in
+The configurations are stored in `config`, and a template is available in
 `config.tmpl`. All items are required, and you may further test run via 
 `./autoconnect.py`. The script will create a `log` folder and store logs on 
 rotation basis.
@@ -45,7 +45,11 @@ cron tabs might be helpful.
 
 ## Dependencies and Acknowledgements
 
-PKU IPGW Client for Linus is open sourced by Chen Xing and Casper Ti. Vector, 
+### PKU IPGW Client for Linux
+
+Version: 0.4.1, included in the repo.
+
+PKU IPGW Client for Linux is open sourced by Chen Xing and Casper Ti. Vector, 
 and we are using it _as is_.
 
 Thanks for their efforts.

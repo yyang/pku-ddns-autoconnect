@@ -1,0 +1,167 @@
+#!/usr/bin/python
+#
+# pkuipgw: PKU IPGW Client for Linux
+# <http://www.linux-wiki.cn/>
+# Copyright (c) 2007-2009,2011-2012 Chen Xing <cxcxcxcx@gmail.com>
+# Copyright (c) 2014-2015 Casper Ti. Vector <caspervector@gmail.com>
+
+from __future__ import unicode_literals
+
+import getopt
+import os.path
+import re
+import sys
+import traceback
+
+if sys.version_info[0] < 3:
+    from ConfigParser import ConfigParser
+    from cookielib import CookieJar
+    from urllib import urlencode
+    from urllib2 import build_opener, HTTPCookieProcessor
+else:
+    from configparser import ConfigParser
+    from http.cookiejar import CookieJar
+    from urllib.parse import urlencode
+    from urllib.request import build_opener, HTTPCookieProcessor
+
+class IpgwException(Exception):
+    pass
+
+def uni(s):
+    if type(s) is type(u""):
+        return s
+    else:
+        return s.decode("UTF-8")
+
+def page_read(p):
+    return p.read().decode("UTF-8")
+
+def login(opener, username, password):
+    magicStr = '|;kiDrqvfi7d$v0p5Fg72Vwbv2;|'
+    page = opener.open(
+        'https://its.pku.edu.cn/cas/login', urlencode({
+            'fwrd': 'free',
+            'username1': username,
+            'password': password,
+            'username': username + magicStr + password + magicStr + '12',
+        }).encode("UTF-8")
+    )
+    html = page_read(page)
+    if not re.match(r'https://its\.pku\.edu\.cn/netportal/', page.geturl()):
+        if html.find('Username or Password error!') != -1:
+            raise IpgwException('IpgwError', 'username or password error')
+        else:
+            raise IpgwException('IpgwError', 'failed to open netportal page')
+
+def connect(opener, all = False):
+    url = 'https://its.pku.edu.cn/netportal/ipgwopen'
+    if all:
+        url += 'all'
+    disconnect(opener)
+    return get_acct_info(page_read(opener.open(url)))
+
+def disconnect(opener, all = False):
+    url = 'https://its.pku.edu.cn/netportal/ipgwclose'
+    if all:
+        url += 'all'
+    return get_acct_info(page_read(opener.open(url)))
+
+def get_acct_info(html):
+    infoRe = r'<!--IPGWCLIENT_START (.*) IPGWCLIENT_END-->'
+    infoMatch = re.search(infoRe, html)
+    if infoMatch:
+        result = []
+        for item in infoMatch.group(1).split(' '):
+            item = item.split('=')
+            result.append((item[0], '='.join(item[1 :])))
+        return result
+    else:
+        raise IpgwException('IpgwError', 'failed to retrieve account info')
+
+def fmt_acct_info(acctInfo):
+    return ''.join(['%15s: %s\n' % (item[0], item[1]) for item in acctInfo])
+
+def in_main():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'c:')
+    except getopt.GetoptError:
+        raise IpgwException('ArgError')
+
+    configFiles = []
+    for key, val in opts:
+        if key == '-c':
+            configFiles.append(val)
+    if not configFiles:
+        configFiles = ['/etc/pkuipgwrc', os.path.expanduser('~/.pkuipgwrc')]
+
+    if len(args) < 1 or args[0] not in ['connect', 'disconnect']:
+        raise IpgwException('ArgError')
+    elif len(args) == 1:
+        all = False
+    elif len(args) == 2 and args[1] == 'all':
+        all = True
+    else:
+        raise IpgwException('ArgError')
+
+    config = ConfigParser()
+    if not config.read(configFiles):
+        raise IpgwException('ConfError', 'no readable config file')
+    elif 'pkuipgw' not in config.sections():
+        raise IpgwException(
+            'ConfError', "section `pkuipgw' not found in config file"
+        )
+    config = dict([(uni(k), uni(v)) for (k, v) in config.items('pkuipgw')])
+    if 'username' not in config or 'password' not in config:
+        raise IpgwException(
+            'ConfError', "both `username' and `password' required"
+        )
+
+    opener = build_opener(HTTPCookieProcessor(CookieJar()))
+    login(opener, config['username'], config['password'])
+    if args[0] == 'connect':
+        acctInfo = connect(opener, all = all)
+    elif args[0] == 'disconnect':
+        acctInfo = disconnect(opener, all = all)
+
+    acctDict, acctText = dict(acctInfo), fmt_acct_info(acctInfo)
+    if 'SUCCESS' not in acctDict:
+        raise IpgwException(
+            'AcctError', "`SUCCESS' not in account info", acctText
+        )
+    elif acctDict['SUCCESS'] != 'YES':
+        raise IpgwException(
+            'AcctError', "`SUCCESS' != `YES' in account info", acctText
+        )
+    else:
+        sys.stdout.write(acctText)
+
+def main():
+    try:
+        in_main()
+    except IpgwException as ex:
+        if ex.args[0] == 'ArgError':
+            sys.stderr.write(
+                'Usage: pkuipgw [-c cfg_file] [-c ...]'
+                ' (connect|disconnect) [all]\n'
+            )
+        elif ex.args[0] == 'AcctError':
+            sys.stderr.write(
+                '%s: %s (see below)\n\n%s' % tuple(ex.args)
+            )
+        else:
+            sys.stderr.write('%s: %s\n' % tuple(ex.args))
+        sys.exit({
+            'ArgError': 1,
+            'ConfError': 1,
+            'IpgwError': 2,
+            'AcctError': 2,
+        }[ex.args[0]])
+    except:
+        traceback.print_exc()
+        sys.exit(3)
+    else:
+        sys.exit(0)
+
+if __name__ == '__main__':
+    main()
+
