@@ -12,6 +12,7 @@ import socket
 import fcntl
 import struct
 import subprocess
+import datetime
 import logging, logging.handlers
 
 if sys.version_info[0] < 3:
@@ -67,10 +68,20 @@ def ping_website(website):
 
 def ping_network():
   if not ping_website('www.pku.edu.cn'):
+    status.set('ipgw', 'network', False)
     raise AutoConnException('NetworkError', 'Seems Internet is not available.')
+  else:
+    status.set('ipgw', 'network', True)
   cernet_free_available = ping_website('www.baidu.com')
-  global_available      = ping_website('www.acs.org')
-  return (cernet_free_available and global_available)
+  global_available = ping_website('www.acs.org')
+  status.set('ipgw', 'cernet_free_available', cernet_free_available)
+  status.set('ipgw', 'global_available', global_available)
+  status.set('ipgw', 'last_checked', datetime.datetime.now())
+  if config.get('connect', 'scope') == 'cernet_free':
+    return cernet_free_available
+  if config.get('connect', 'scope') == 'global':
+    return cernet_free_available and global_available
+
 
 """
   Invokes PKU IPGW connection script
@@ -89,14 +100,19 @@ def disconnect_ipgw(all = False):
 
 def connect_ipgw(scope):
   connect_ipgw_command = ipgw_script + ' -c ' + config_file + ' connect'
-  if scope == 'global'
+  if scope == 'global':
     connect_ipgw_command += ' all'
   p = subprocess.Popen(connect_ipgw_command, shell=True, 
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
   out, err = p.communicate()
   if out.find('Error') != -1:
     logger.error(out.replace('\n', ' @@'));
+    status.set('ddns', 'last_update', datetime.datetime.now())
+    status.set('ipgw', 'ipgw_status', 'failed')
     raise AutoConnException('IpgwError', 'Failed to connect.')
+  else:
+    status.set('ipgw', 'last_update', datetime.datetime.now())
+    status.set('ipgw', 'ipgw_status', 'connected ' + scope)
 
 """
   Updates DDNS
@@ -119,13 +135,21 @@ def get_ip_address(ifname):
 def update_ddns(ddns, ip_address):
   if ddns['provider'] == 'pubyun':
     update_url = 'http://members.3322.net/dyndns/update?system=dyndns&hostname='
-    update_ddns_command = 'lynx -mime_header -auth=' + ddns['username'] + \
-                          ':' +  ddns['password'] + ' "' + update_url + \
+    update_auth = ddns['username'] + ':' + ddns['password']
+    update_ddns_command = 'curl --user ' + update_auth + ' "' + update_url + \
                           ddns['domain'] + '"'
     p = subprocess.Popen(update_ddns_command, shell=True, 
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out, err = p.communicate()
     logger.info(out.replace('\n', ' @@'));
+    if 'good' in out or 'nochg' in out:
+      status.set('ddns', 'last_update', datetime.datetime.now())
+      status.set('ddns', 'updated', True)
+    else:
+      status.set('ddns', 'last_update', datetime.datetime.now())
+      status.set('ddns', 'updated', False)
+      AutoConnException('DdnsError', 'DDNS not updated')
+      
   else: 
     raise AutoConnException('DdnsError', 'Provider not supported.')
 
@@ -152,22 +176,29 @@ def read_status():
 def main():
   logger.info('Started PKU DDNS Auto Connect.')
   try:
+    global config, status
     config = read_config()
     status = read_status()
+    if not config.get('connect', 'enabled') == 'True':
+      logger.info('Auto Connect disabled by configuration, terminated.\n')
+      sys.exit(0)
 
     if not ping_network():
       disconnect_ipgw()
-      connect_ipgw(config._sections['connect']['scope'])
+      connect_ipgw(config.get('connect', 'scope'))
       ping_network()
 
-    current_ip = get_ip_address(config._sections['connect']['interface'])
-    if not status._sections['ddns']['system_ip'] == current_ip:
+    current_ip = get_ip_address(config.get('connect', 'interface'))
+    if not (status.get('ddns', 'system_ip') == current_ip \
+            and status.get('ddns', 'updated') == False):
+      status.set('ddns', 'system_ip', current_ip)
       update_ddns(config._sections['ddns'], current_ip)
 
   except AutoConnException as ex:
     sys.stderr.write('%s: %s\n' % tuple(ex.args))
+  
+  status.write(open(status_file, 'w'));
   logger.info('Terminated.\n')
-
 
 if __name__ == '__main__':
   main();

@@ -1,9 +1,12 @@
 [ipgw]
 network = True
-cernet_free = False
-global = False
-last_connected = Jan 10.
+cernet_free_available = True
+global_available = True
+last_checked = 2015-04-08 16:09:52.798130
+ipgw_status = connected
+last_update = 2015-04-08 16:00:55.459304
 
 [ddns]
-system_ip = 10.10.10.10
-ddns_updated = Jan 10.
+system_ip = 216.169.129.136
+updated = False
+last_update = 2015-04-08 16:09:53.267928
